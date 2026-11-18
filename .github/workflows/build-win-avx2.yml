@@ -1,0 +1,44 @@
+name: Build Windows AVX2 llama-quantize
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-win-avx2:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Patch log.cpp for VS2022 compatibility
+        shell: pwsh
+        run: |
+          if (Test-Path "common\log.cpp") {
+            $content = Get-Content "common\log.cpp" -Raw
+            if ($content -notmatch "_SILENCE_CXX23_CHRONO_DEPRECATION_WARNING") {
+              $patch = "#include `"log.h`"`r`n`r`n#define _SILENCE_CXX23_CHRONO_DEPRECATION_WARNING`r`n#include <chrono>"
+              $content = $content -replace '#include\s+"log\.h"', $patch
+              Set-Content "common\log.cpp" -Value $content -NoNewline
+            }
+          }
+
+      - name: Configure CMake (AVX2 + Static)
+        run: >
+          cmake -B build
+          -DBUILD_SHARED_LIBS=OFF
+          -DGGML_NATIVE=OFF
+          -DGGML_AVX2=ON
+          -DGGML_FMA=ON
+          -DGGML_F16C=ON
+          -DCMAKE_CXX_STANDARD=17
+          -DCMAKE_CXX_STANDARD_REQUIRED=ON
+          -DCMAKE_CXX_FLAGS="/std:c++17 /D_SILENCE_CXX23_CHRONO_DEPRECATION_WARNING"
+
+      - name: Build llama-quantize (Release)
+        run: cmake --build build --config Release --target llama-quantize -j 4
+
+      - name: Upload AVX2 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-quantize-win-avx2
+          path: build/bin/Release/llama-quantize.exe
